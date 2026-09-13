@@ -1,0 +1,379 @@
+<!DOCTYPE HTML>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Portal 1</title>
+    <style>body {
+  font-family: arial;
+  margin: 0;
+  padding: none;
+}
+
+.emscripten { padding-right: 0; margin-left: auto; margin-right: auto; display: block; }
+div.emscripten { text-align: center; }
+div.emscripten_border { border: 1px solid black; }
+/* the canvas *must not* have any border or padding, or mouse coords will be wrong */
+canvas.emscripten { border: 0px none; background-color: black; }
+
+#emscripten_logo {
+  display: inline-block;
+  margin: 0;
+  padding: 6px;
+  width: 265px;
+}
+
+.spinner {
+  height: 30px;
+  width: 30px;
+  margin: 0;
+  margin-top: 20px;
+  margin-left: 20px;
+  display: inline-block;
+  vertical-align: top;
+
+  -webkit-animation: rotation .8s linear infinite;
+  -moz-animation: rotation .8s linear infinite;
+  -o-animation: rotation .8s linear infinite;
+  animation: rotation 0.8s linear infinite;
+
+  border-left: 5px solid rgb(235, 235, 235);
+  border-right: 5px solid rgb(235, 235, 235);
+  border-bottom: 5px solid rgb(235, 235, 235);
+  border-top: 5px solid rgb(120, 120, 120);
+
+  border-radius: 100%;
+  background-color: rgb(189, 215, 46);
+}
+
+@-webkit-keyframes rotation {
+  from {-webkit-transform: rotate(0deg);}
+  to {-webkit-transform: rotate(360deg);}
+}
+@-moz-keyframes rotation {
+  from {-moz-transform: rotate(0deg);}
+  to {-moz-transform: rotate(360deg);}
+}
+@-o-keyframes rotation {
+  from {-o-transform: rotate(0deg);}
+  to {-o-transform: rotate(360deg);}
+}
+@keyframes rotation {
+  from {transform: rotate(0deg);}
+  to {transform: rotate(360deg);}
+}
+
+#status {
+  display: inline-block;
+  vertical-align: top;
+  margin-top: 30px;
+  margin-left: 20px;
+  font-weight: bold;
+  color: rgb(120, 120, 120);
+}
+
+#progress {
+  height: 20px;
+  width: 300px;
+}
+
+#controls {
+  display: inline-block;
+  float: right;
+  vertical-align: top;
+  margin-top: 30px;
+  margin-right: 20px;
+}
+
+#output {
+  width: 100%;
+  height: 200px;
+  margin: 0 auto;
+  margin-top: 10px;
+  border-left: 0px;
+  border-right: 0px;
+  padding-left: 0px;
+  padding-right: 0px;
+  display: block;
+  background-color: black;
+  color: white;
+  font-family: 'Lucida Console', Monaco, monospace;
+  outline: none;
+}
+</style>
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+		#canvas {
+			display: block;
+			width: 100vw;
+			height: 100vh;
+			position: absolute;
+			top: 0; left: 0;
+			outline: none;
+			object-fit: contain;
+			image-rendering: auto;
+		}
+
+#crash-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.75);
+  align-items: center;
+  justify-content: center;
+  font-family: Arial, sans-serif;
+}
+
+#crash-overlay.visible {
+  display: flex;
+}
+
+#crash-box {
+  background: #fff;
+  color: #000;
+  border: 2px solid #fff;
+  outline: 1px solid #000;
+  width: 80%;
+  max-width: 850px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#crash-header {
+  color: #000;
+  background: #fff;
+  padding: 14px 18px;
+  font: bold 20px Arial, sans-serif;
+  text-align: left;
+  border-bottom: 1px solid #000;
+}
+
+#crash-header small {
+  display: none;
+}
+
+#crash-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  background: #fff;
+}
+
+#crash-body pre {
+  color: #000;
+  font: bold 13px/1.4 Arial, sans-serif;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+#crash-tools {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  background: #fff;
+  border-top: 1px solid #000;
+}
+
+#crash-tools button {
+  background: #fff;
+  color: #000;
+  border: 1px solid #000;
+  padding: 6px 14px;
+  font: bold 13px Arial, sans-serif;
+  cursor: pointer;
+}
+
+#crash-tools button:hover {
+  background: #eee;
+}
+
+#crash-tools button.copy-btn.copied {
+  background: #ddd;
+}
+	</style>
+  </head>
+  <body>
+    <canvas id="canvas" class="emscripten" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="loadtext" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font:bold 24px arial,sans-serif; text-align:center; z-index:10; pointer-events:none;"></div>
+
+    <!-- Crash overlay -->
+    <div id="crash-overlay">
+      <div id="crash-box">
+        <div id="crash-header">
+          Game Crashed! I have fallen and I can't get up!
+          <small>This is awkward.</small>
+        </div>
+        <div id="crash-body"><pre id="crash-text"></pre></div>
+        <div id="crash-tools">
+          <button class="copy-btn" onclick="copyCrashLog()">Copy Log</button>
+          <button onclick="location.reload()">Restart Game</button>
+        </div>
+      </div>
+    </div>
+
+    <script type='text/javascript'>
+      var canvasElement = document.getElementById('canvas');
+
+      canvasElement.addEventListener('webglcontextlost', (e) => {
+        alert('WebGL context lost. You will need to reload the page.');
+        e.preventDefault();
+      }, false);
+
+      // Request pointer lock on first user interaction
+      function doPointerLock() {
+        if (document.pointerLockElement === canvasElement) return;
+        canvasElement.requestPointerLock().catch(function(err) {
+          console.warn('pointer lock failed:', err);
+        });
+      }
+      canvasElement.addEventListener('click', function onClick() {
+        canvasElement.removeEventListener('click', onClick);
+        doPointerLock();
+      });
+      document.addEventListener('keydown', function onKey() {
+        document.removeEventListener('keydown', onKey);
+        doPointerLock();
+      });
+      document.addEventListener('pointerlockerror', function() {
+        console.warn('pointer lock error (this is often benign - click the canvas)');
+      });
+
+      // Prevent Emscripten's internal pointer lock rejections from crashing
+      var origRequestPointerLock = canvasElement.requestPointerLock.bind(canvasElement);
+      canvasElement.requestPointerLock = function() {
+        var p = origRequestPointerLock();
+        if (p && typeof p.catch === 'function') {
+          p.catch(function(err) {
+            console.warn('requestPointerLock failed (non-fatal):', err.message || err);
+          });
+        }
+        return p;
+      };
+
+      // Store pending resize so it's not lost if Module._JSRequestResize isn't ready yet.
+      // Flushed in Module.onRuntimeInitialized below.
+      var g_pendingResize = null;
+      function onResize() {
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        g_pendingResize = [w, h];
+        if (Module._JSRequestResize) {
+          Module._JSRequestResize(w, h);
+          g_pendingResize = null;
+        }
+      }
+      // The drawing buffer size is managed by the game's SetMode/SDL chain.
+      // We do NOT set canvasElement.width/height here — OffscreenCanvas would reject it.
+      window.addEventListener('resize', onResize);
+      document.addEventListener('fullscreenchange', onResize);
+      document.addEventListener('webkitfullscreenchange', onResize);
+
+      var loadtextEl = document.getElementById('loadtext');
+
+      // Main-thread console capture (C printf, WebGL errors, etc.)
+      var g_mainLogBuf = [];
+      function g_mainLog(level, args) {
+        var t = new Date().toISOString().slice(11, 23);
+        var line = t + ' [main:' + level + '] ' + Array.prototype.join.call(args, ' ');
+        g_mainLogBuf.push(line);
+        if (g_mainLogBuf.length > 10000) g_mainLogBuf.shift();
+      }
+      var g_origLog = console.log.bind(console);
+      var g_origWarn = console.warn.bind(console);
+      var g_origError = console.error.bind(console);
+      console.log = function() { g_mainLog('log', arguments); g_origLog.apply(null, arguments); };
+      console.warn = function() { g_mainLog('warn', arguments); g_origWarn.apply(null, arguments); };
+      console.error = function() { g_mainLog('error', arguments); g_origError.apply(null, arguments); };
+
+      // Crash overlay
+      var g_crashed = false;
+      var g_crashOverlayEl = document.getElementById('crash-overlay');
+      var g_crashTextEl = document.getElementById('crash-text');
+
+      function showCrashOverlay(reason) {
+        if (g_crashed) return;
+        g_crashed = true;
+
+        var text = '';
+        if (reason && reason.stack) {
+          text += reason.stack;
+        } else if (reason && reason.message) {
+          text += reason.message;
+        } else if (typeof reason === 'string') {
+          text += reason;
+        } else {
+          text += '(unknown)';
+        }
+        text += '\n\n========== CONSOLE LOG ==========\n';
+        text += g_mainLogBuf.join('\n');
+
+        g_crashTextEl.textContent = text;
+        g_crashOverlayEl.classList.add('visible');
+      }
+
+      function copyCrashLog() {
+        var text = g_crashTextEl.textContent;
+        navigator.clipboard.writeText(text).then(function() {
+          var btn = document.querySelector('.copy-btn');
+          btn.textContent = 'Copied!';
+          btn.classList.add('copied');
+          setTimeout(function() { btn.textContent = 'Copy Log'; btn.classList.remove('copied'); }, 2000);
+        }).catch(function() {});
+      }
+
+      // Catch JS errors on main thread
+      window.onerror = function(msg, url, line, col, error) {
+        showCrashOverlay(error || msg);
+      };
+      window.onunhandledrejection = function(ev) {
+        showCrashOverlay(ev.reason);
+      };
+
+      var Module = {
+        canvas: canvasElement,
+        setStatus(text) {
+          if (text) {
+            loadtextEl.style.display = '';
+            loadtextEl.innerText = text;
+          } else {
+            loadtextEl.style.display = 'none';
+            loadtextEl.innerText = '';
+          }
+        },
+        totalDependencies: 0,
+        monitorRunDependencies(left) {
+          if (left > 0) {
+            Module.setStatus('Loading... (' + left + ' dependencies remaining)');
+          } else {
+            Module.setStatus('');
+          }
+        },
+        // Capture C stdout/stderr (proxied from worker) — both buffer AND display
+        print: function(text) { g_mainLog('print', [text]); g_origLog(text); },
+        printErr: function(text) {
+          g_mainLog('printerr', [text]); g_origError(text);
+          // Detect wasm/engine crashes in stderr
+          if (/crash|abort|runtimeerror|fatal|exception|assertion failed|unreachable/i.test(text)) {
+            showCrashOverlay(text);
+          }
+        },
+        // Called by worker crash handler to get main-thread log
+        _getMainCrashLog: function() { return g_mainLogBuf.join('\n'); },
+        // Flush any resize event that fired before Module._JSRequestResize was available
+        onRuntimeInitialized: function() {
+          if (window.g_pendingResize && Module._JSRequestResize) {
+            Module._JSRequestResize(g_pendingResize[0], g_pendingResize[1]);
+            window.g_pendingResize = null;
+          }
+        }
+      };
+
+    </script>
+    <script async type="text/javascript" src="index.js"></script>
+  </body>
+</html>
