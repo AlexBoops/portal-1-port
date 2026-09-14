@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, minimum-scale=1, maximum-scale=1, user-scalable=no">
     <title>Portal</title>
 
-    <!-- First element in head: forces crossOriginIsolated via dedicated service worker -->
+    <!-- First element in head: COOP/COEP service worker -->
     <script src="coi-serviceworker.js"></script>
 
     <style>
@@ -77,9 +77,14 @@
         letter-spacing: 0.1em;
         border-radius: 3px;
         cursor: pointer;
-        transition: background 0.2s;
+        transition: background 0.2s, opacity 0.2s;
       }
-      .btn:hover { background: #38bdf8; }
+      .btn:hover:not(:disabled) { background: #38bdf8; }
+      .btn:disabled {
+        background: #1e293b;
+        color: #64748b;
+        cursor: wait;
+      }
 
       #progress-box { display: none; width: 100%; margin-top: 1.5rem; }
       .stat-row {
@@ -153,8 +158,8 @@
     <div id="launcher-ui">
       <div class="card">
         <div class="title">Portal Web</div>
-        <div class="desc">Source Engine WASM. Streams and stitches local repository chunks directly in-origin.</div>
-        <button id="btn-start" class="btn" onclick="startApp()">Start Engine</button>
+        <div class="desc">Source Engine WASM. Hardware-accelerated local execution profile.</div>
+        <button id="btn-start" class="btn" onclick="startApp()" disabled>Initializing Environment...</button>
         <div id="progress-box">
           <div class="stat-row">
             <span id="txt-status">INITIALIZING</span>
@@ -210,6 +215,27 @@
       let g_downloaded = 0;
       let g_launched = false;
 
+      // Gate startup until crossOriginIsolated is established
+      function checkIsolation() {
+        if (window.crossOriginIsolated) {
+          btnStart.disabled = false;
+          btnStart.textContent = 'Start Engine';
+        } else {
+          btnStart.disabled = true;
+          btnStart.textContent = 'Enabling SharedArrayBuffer...';
+          // If service worker is ready but page hasn't reloaded under its control, reload
+          if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            window.location.reload();
+          }
+        }
+      }
+
+      window.addEventListener('load', () => {
+        checkIsolation();
+        // Check again after a second in case SW registered late
+        setTimeout(checkIsolation, 1000);
+      });
+
       function updateUI(status, file, bytesAdded) {
         if (status) txtStatus.textContent = status;
         if (file) txtFile.textContent = file;
@@ -252,7 +278,7 @@
         }
       });
 
-      // Split file stitcher using purely relative, same-origin paths
+      // Split file stitcher using purely relative local paths
       async function fetchPart(baseName, partIdx) {
         const pad4 = String(partIdx).padStart(4, '0');
         const paths = [
@@ -310,7 +336,6 @@
         return null;
       }
 
-      // Intercept fetch and XHR for chunk assembly without external CDNs
       const origFetch = window.fetch.bind(window);
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
@@ -401,7 +426,6 @@
         },
         preRun: [
           function() {
-            // Guard run dependencies
             const origRemove = Module.removeRunDependency;
             if (typeof origRemove === 'function') {
               Module.removeRunDependency = function(id) {
@@ -410,7 +434,6 @@
               };
             }
 
-            // Watchdog to reveal viewport once maps are ready
             const watchdog = setInterval(() => {
               if (typeof FS !== 'undefined') {
                 try {
@@ -429,7 +452,6 @@
               }
             }, 1000);
 
-            // Clear stuck dylib dependencies
             setInterval(() => {
               if (typeof runDependencyTracking !== 'undefined') {
                 for (const dep in runDependencyTracking) {
@@ -450,7 +472,6 @@
         ]
       };
 
-      // Unblock downloadMap futex locks safely
       let _downloadMapHandler = null;
       Object.defineProperty(Module, 'downloadMap', {
         configurable: true,
@@ -475,6 +496,12 @@
       });
 
       function startApp() {
+        if (!window.crossOriginIsolated) {
+          alert('SharedArrayBuffer isolation is not active yet. Reloading page...');
+          window.location.reload();
+          return;
+        }
+
         if (g_launched) return;
         g_launched = true;
 
