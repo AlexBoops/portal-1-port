@@ -5,59 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, minimum-scale=1, maximum-scale=1, user-scalable=no">
     <title>Portal</title>
 
-    <!-- Native inline COOP/COEP isolation worker for GitHub Pages -->
-    <script>
-      (function() {
-        if (window.crossOriginIsolated !== false && window.crossOriginIsolated) return;
-        const workerScript = `
-          self.addEventListener("install", () => self.skipWaiting());
-          self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
-          self.addEventListener("fetch", (event) => {
-            if (event.request.cache === "only-if-cached" && event.request.mode !== "same-origin") return;
-            event.respondWith(
-              fetch(event.request).then((response) => {
-                if (response.status === 0) return response;
-                const newHeaders = new Headers(response.headers);
-                newHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
-                newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
-                return new Response(response.body, {
-                  status: response.status,
-                  statusText: response.statusText,
-                  headers: newHeaders
-                });
-              }).catch(() => fetch(event.request))
-            );
-          });
-        `;
-        if ("serviceWorker" in navigator) {
-          const blob = new Blob([workerScript], { type: "text/javascript" });
-          const swUrl = URL.createObjectURL(blob);
-          navigator.serviceWorker.register(swUrl).then((reg) => {
-            if (reg.active && !window.crossOriginIsolated) {
-              window.location.reload();
-            }
-            reg.addEventListener("updatefound", () => {
-              const installing = reg.installing;
-              installing.addEventListener("statechange", () => {
-                if (installing.state === "activated" && !window.crossOriginIsolated) {
-                  window.location.reload();
-                }
-              });
-            });
-          }).catch(() => {});
-        }
-      })();
-    </script>
+    <!-- First element in head: forces crossOriginIsolated via dedicated service worker -->
+    <script src="coi-serviceworker.js"></script>
 
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background-color: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; }
-      #canvas { width: 100vw; height: 100vh; display: block; position: absolute; top: 0; left: 0; outline: none; background: #000; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #000;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      }
+      #canvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        outline: none;
+        background: #000;
+      }
 
       #launcher-ui {
-        position: fixed; inset: 0; z-index: 50;
+        position: fixed;
+        inset: 0;
+        z-index: 50;
         background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
         padding: 2rem;
       }
       #launcher-ui.hidden { display: none !important; }
@@ -71,29 +51,100 @@
         width: 100%;
         box-shadow: 0 10px 40px rgba(0,0,0,0.8);
       }
-      .title { font-size: 1.5rem; font-weight: 800; letter-spacing: 0.15em; color: #00b4d8; text-transform: uppercase; margin-bottom: 0.4rem; }
-      .desc { font-size: 0.82rem; color: #64748b; line-height: 1.5; margin-bottom: 1.75rem; }
+      .title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: 0.15em;
+        color: #00b4d8;
+        text-transform: uppercase;
+        margin-bottom: 0.4rem;
+      }
+      .desc {
+        font-size: 0.82rem;
+        color: #64748b;
+        line-height: 1.5;
+        margin-bottom: 1.75rem;
+      }
       .btn {
-        width: 100%; background: #00b4d8; color: #000; border: none; padding: 0.9rem;
-        font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.1em;
-        border-radius: 3px; cursor: pointer; transition: background 0.2s;
+        width: 100%;
+        background: #00b4d8;
+        color: #000;
+        border: none;
+        padding: 0.9rem;
+        font-weight: 700;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: background 0.2s;
       }
       .btn:hover { background: #38bdf8; }
 
       #progress-box { display: none; width: 100%; margin-top: 1.5rem; }
-      .stat-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: #cbd5e1; margin-bottom: 0.4rem; }
-      .track { width: 100%; height: 6px; background: #1e293b; border-radius: 2px; overflow: hidden; }
-      .bar { width: 0%; height: 100%; background: #00b4d8; transition: width 0.08s linear; }
-      .sub-row { display: flex; justify-content: space-between; font-size: 0.7rem; color: #64748b; margin-top: 0.4rem; }
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        color: #cbd5e1;
+        margin-bottom: 0.4rem;
+      }
+      .track {
+        width: 100%;
+        height: 6px;
+        background: #1e293b;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .bar {
+        width: 0%;
+        height: 100%;
+        background: #00b4d8;
+        transition: width 0.08s linear;
+      }
+      .sub-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        color: #64748b;
+        margin-top: 0.4rem;
+      }
 
       #crash-overlay {
-        position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.92);
-        display: none; align-items: center; justify-content: center; padding: 2rem;
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background: rgba(0,0,0,0.92);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
       }
       #crash-overlay.active { display: flex !important; }
-      .crash-card { background: #090303; border: 1px solid #7f1d1d; border-radius: 4px; padding: 1.5rem; max-width: 650px; width: 100%; }
-      .crash-title { color: #f87171; font-weight: 700; font-size: 0.95rem; margin-bottom: 0.75rem; }
-      .crash-pre { background: #000; color: #fca5a5; font-size: 0.75rem; padding: 0.75rem; max-height: 250px; overflow-y: auto; white-space: pre-wrap; margin-bottom: 1rem; }
+      .crash-card {
+        background: #090303;
+        border: 1px solid #7f1d1d;
+        border-radius: 4px;
+        padding: 1.5rem;
+        max-width: 650px;
+        width: 100%;
+      }
+      .crash-title {
+        color: #f87171;
+        font-weight: 700;
+        font-size: 0.95rem;
+        margin-bottom: 0.75rem;
+      }
+      .crash-pre {
+        background: #000;
+        color: #fca5a5;
+        font-size: 0.75rem;
+        padding: 0.75rem;
+        max-height: 250px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        margin-bottom: 1rem;
+      }
     </style>
   </head>
   <body>
@@ -201,7 +252,7 @@
         }
       });
 
-      // Split file stitcher (strictly local relative paths)
+      // Split file stitcher using purely relative, same-origin paths
       async function fetchPart(baseName, partIdx) {
         const pad4 = String(partIdx).padStart(4, '0');
         const paths = [
@@ -359,7 +410,7 @@
               };
             }
 
-            // Reveal trigger watchdog for filesystem
+            // Watchdog to reveal viewport once maps are ready
             const watchdog = setInterval(() => {
               if (typeof FS !== 'undefined') {
                 try {
@@ -378,7 +429,7 @@
               }
             }, 1000);
 
-            // Clear stuck dylib dependencies if they stall
+            // Clear stuck dylib dependencies
             setInterval(() => {
               if (typeof runDependencyTracking !== 'undefined') {
                 for (const dep in runDependencyTracking) {
