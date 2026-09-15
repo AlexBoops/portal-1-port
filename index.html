@@ -30,7 +30,6 @@
         font-family: 'ApertureMono', -apple-system, monospace;
       }
 
-      /* Game Canvas Viewport */
       #canvas {
         width: 100vw;
         height: 100vh;
@@ -43,7 +42,6 @@
         cursor: default;
       }
 
-      /* Aperture Science Terminal Theme */
       #launcher-ui {
         position: fixed;
         inset: 0;
@@ -56,7 +54,6 @@
         padding: 2rem;
       }
 
-      /* CRT Scanline Overlay */
       #launcher-ui::before {
         content: " ";
         display: block;
@@ -145,6 +142,61 @@
 
       .log-console .log-entry span {
         color: #00b4d8;
+      }
+
+      .audio-selection-box {
+        background: rgba(10, 14, 20, 0.8);
+        border: 1px solid #21262d;
+        padding: 0.9rem 1rem;
+        margin-bottom: 1.2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+      }
+
+      .audio-selection-title {
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #7d8590;
+        text-transform: uppercase;
+      }
+
+      .audio-options {
+        display: flex;
+        gap: 1rem;
+      }
+
+      .audio-option {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.78rem;
+        color: #c9d1d9;
+        cursor: pointer;
+      }
+
+      .audio-option input[type="radio"] {
+        accent-color: #00b4d8;
+        cursor: pointer;
+      }
+
+      .audio-option span.tag {
+        font-size: 0.65rem;
+        padding: 2px 5px;
+        border-radius: 2px;
+      }
+
+      .tag-full {
+        background: rgba(0, 180, 216, 0.15);
+        color: #38bdf8;
+        border: 1px solid rgba(0, 180, 216, 0.3);
+      }
+
+      .tag-fast {
+        background: rgba(255, 158, 0, 0.15);
+        color: #ffb703;
+        border: 1px solid rgba(255, 158, 0, 0.3);
       }
 
       .btn-terminal {
@@ -280,9 +332,25 @@
         </div>
 
         <div class="log-console">
-          <div class="log-entry">> <span>SYS_INIT</span>: GITHACK ASSET SPLIT INTERFACE ACTIVE</div>
+          <div class="log-entry">> <span>SYS_INIT</span>: CHUNK ASSET INTERFACE ACTIVE</div>
           <div class="log-entry">> <span>THREADS</span>: SAB SECURITY BUFFER SYNCHRONIZED</div>
           <div class="log-entry">> <span>TARGET</span>: CHAMBER TESTCHMB_A_00.BSP</div>
+        </div>
+
+        <div class="audio-selection-box" id="audio-panel">
+          <div class="audio-selection-title">Acoustic Package Stream</div>
+          <div class="audio-options">
+            <label class="audio-option">
+              <input type="radio" name="optAudio" value="with_audio" checked>
+              <span>Full Audio (Voice & Sound FX)</span>
+              <span class="tag tag-full">+210 MB</span>
+            </label>
+            <label class="audio-option">
+              <input type="radio" name="optAudio" value="no_audio">
+              <span>Mute / Fast Load</span>
+              <span class="tag tag-fast">Bypass VPK</span>
+            </label>
+          </div>
         </div>
 
         <button id="btn-start" class="btn-terminal" onclick="startApp()" disabled>AWAITING ISOLATION...</button>
@@ -312,6 +380,10 @@
     </div>
 
     <script type="text/javascript">
+      window.spinnerElement = document.createElement('div');
+      window.statusElement = document.createElement('div');
+      window.progressElement = document.createElement('progress');
+
       const SPLIT_FILES = {
         'portal_audio.data': 46,
         'background1.data': 7,
@@ -331,6 +403,7 @@
       const canvasElement = document.getElementById('canvas');
       const launcherUi = document.getElementById('launcher-ui');
       const btnStart = document.getElementById('btn-start');
+      const audioPanel = document.getElementById('audio-panel');
       const progressBox = document.getElementById('progress-box');
       const txtStatus = document.getElementById('txt-status');
       const txtPct = document.getElementById('txt-pct');
@@ -340,16 +413,20 @@
       const crashOverlay = document.getElementById('crash-overlay');
       const crashLog = document.getElementById('crash-log');
 
+      let g_loadAudio = true;
       let g_totalExpected = 380 * 1024 * 1024;
       let g_downloaded = 0;
       let g_launched = false;
       let g_engineInitialized = false;
 
-      /* =========================================================
-         FIX: POINTER LOCK & ESCAPE CURSOR RE-APPEARANCE
-         ========================================================= */
+      document.querySelectorAll('input[name="optAudio"]').forEach((elem) => {
+        elem.addEventListener('change', (e) => {
+          g_loadAudio = e.target.value === 'with_audio';
+          g_totalExpected = g_loadAudio ? (380 * 1024 * 1024) : (170 * 1024 * 1024);
+          updateUI(null, null, 0);
+        });
+      });
 
-      // Force canvas to restore pointer visibility whenever escape unlocks the mouse
       document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement !== canvasElement) {
           canvasElement.style.cursor = 'default';
@@ -371,10 +448,8 @@
         } catch(e) {}
       }
 
-      // Re-grab lock on click if game is running; unlock shows normal cursor
       canvasElement.addEventListener('click', requestEngineLock);
 
-      // Handle Escape key: explicitly restore pointer visibility on canvas
       window.addEventListener('keydown', (e) => {
         if (e.code === 'Escape' || e.key === 'Escape') {
           if (document.pointerLockElement) {
@@ -384,10 +459,6 @@
           document.body.style.cursor = 'default';
         }
       });
-
-      /* =========================================================
-         ISOLATION & UI STATE HANDLERS
-         ========================================================= */
 
       function checkIsolation() {
         if (window.crossOriginIsolated) {
@@ -439,10 +510,6 @@
           g_pendingResize = null;
         }
       });
-
-      /* =========================================================
-         LOCAL REPOSITORY CHUNK ASSEMBLY
-         ========================================================= */
 
       async function fetchPart(baseName, partIdx) {
         const pad4 = String(partIdx).padStart(4, '0');
@@ -504,6 +571,11 @@
       const origFetch = window.fetch.bind(window);
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
+
+        if (!g_loadAudio && url.includes('portal_audio.data')) {
+          return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
+        }
+
         const split = getSplitTarget(url);
         if (split) {
           try {
@@ -529,6 +601,19 @@
 
         const origSend = xhr.send;
         xhr.send = function(body) {
+          if (!g_loadAudio && targetUrl.includes('portal_audio.data')) {
+            setTimeout(() => {
+              const emptyBuf = new ArrayBuffer(0);
+              Object.defineProperty(xhr, 'status', { get: () => 200 });
+              Object.defineProperty(xhr, 'statusText', { get: () => 'OK' });
+              Object.defineProperty(xhr, 'readyState', { get: () => 4 });
+              Object.defineProperty(xhr, 'response', { get: () => emptyBuf });
+              Object.defineProperty(xhr, 'responseText', { get: () => '' });
+              if (typeof xhr.onload === 'function') xhr.onload(new ProgressEvent('load'));
+            }, 0);
+            return;
+          }
+
           const split = getSplitTarget(targetUrl);
           if (split) {
             assembleSplit(split).then(buffer => {
@@ -555,14 +640,13 @@
         return xhr;
       };
 
-      /* =========================================================
-         SOURCE ENGINE WASM BINDINGS
-         ========================================================= */
-
       var Module = {
         canvas: canvasElement,
         locateFile: (p) => p,
         totalDependencies: 0,
+        spinner: window.spinnerElement,
+        statusElement: window.statusElement,
+        progressElement: window.progressElement,
         setStatus: (text) => {
           if (text) updateUI('INITIALIZING', text);
         },
@@ -585,7 +669,7 @@
         },
         printErr: function(text) {
           console.error(text);
-          if (/crash|abort|runtimeerror|fatal|exception|assertion failed/i.test(text)) {
+          if (/crash|fatal error|exception/i.test(text) && !/assertion failed/i.test(text)) {
             showCrash(text);
           }
         },
@@ -597,11 +681,17 @@
         },
         preRun: [
           function() {
-            const origRemove = Module.removeRunDependency;
-            if (typeof origRemove === 'function') {
+            const origRemoveDep = Module.removeRunDependency;
+            if (typeof origRemoveDep === 'function') {
               Module.removeRunDependency = function(id) {
-                if (typeof runDependencyTracking !== 'undefined' && !runDependencyTracking[id]) return;
-                try { origRemove.call(Module, id); } catch(e) {}
+                if (typeof runDependencies !== 'undefined') {
+                  if (typeof runDependencies[id] === 'undefined' && (typeof dependenciesFulfilled === 'undefined' || !runDependencies)) {
+                    return;
+                  }
+                }
+                try {
+                  origRemoveDep.call(Module, id);
+                } catch(e) {}
               };
             }
 
@@ -624,16 +714,6 @@
                 } catch(e) {}
               }
             }, 1000);
-
-            setInterval(() => {
-              if (typeof runDependencyTracking !== 'undefined') {
-                for (const dep in runDependencyTracking) {
-                  if (dep === 'loadDylibs' || dep === 'load_game_data') {
-                    try { Module.removeRunDependency(dep); } catch(e) {}
-                  }
-                }
-              }
-            }, 3000);
 
             if (typeof FS !== 'undefined') {
               FS.syncfs = (p, cb) => {
@@ -668,7 +748,7 @@
         }
       });
 
-      function startApp() {
+      async function startApp() {
         if (!window.crossOriginIsolated) {
           alert('SharedArrayBuffer isolation is not active yet. Reloading...');
           window.location.reload();
@@ -679,18 +759,43 @@
         g_launched = true;
 
         btnStart.style.display = 'none';
+        audioPanel.style.display = 'none';
         progressBox.style.display = 'block';
-        updateUI('EXECUTING', 'Loading engine core...');
+        updateUI('EXECUTING', 'Compiling WebAssembly core...');
 
-        if (typeof AL !== 'undefined' && AL.currentCtx && AL.currentCtx.audioCtx && AL.currentCtx.audioCtx.state === 'suspended') {
+        if (g_loadAudio && typeof AL !== 'undefined' && AL.currentCtx && AL.currentCtx.audioCtx && AL.currentCtx.audioCtx.state === 'suspended') {
           AL.currentCtx.audioCtx.resume();
         }
 
-        const script = document.createElement('script');
-        script.type = 'text/javascript';
-        script.src = 'index.js';
-        script.onerror = (e) => showCrash('Failed loading local index.js: ' + e);
-        document.body.appendChild(script);
+        try {
+          const wasmRes = await origFetch('index.wasm');
+          if (!wasmRes.ok) throw new Error('Missing index.wasm');
+          const wasmBytes = await wasmRes.arrayBuffer();
+          const compiledModule = await WebAssembly.compile(wasmBytes);
+
+          Module.wasmBinary = wasmBytes;
+          Module.instantiateWasm = function(imports, successCallback) {
+            WebAssembly.instantiate(compiledModule, imports).then((instance) => {
+              successCallback(instance, compiledModule);
+            }).catch((err) => {
+              showCrash('WASM Instantiate Failed: ' + err);
+            });
+            return {};
+          };
+
+          if (SPLIT_FILES['background1.data']) {
+            assembleSplit({ baseName: 'background1.data', totalParts: SPLIT_FILES['background1.data'] }).catch(() => {});
+          }
+
+          updateUI('LINKING', 'Executing runtime loader...');
+          const script = document.createElement('script');
+          script.type = 'text/javascript';
+          script.src = 'index.js';
+          script.onerror = (e) => showCrash('Failed loading local index.js: ' + e);
+          document.body.appendChild(script);
+        } catch(err) {
+          showCrash(err);
+        }
       }
     </script>
   </body>
