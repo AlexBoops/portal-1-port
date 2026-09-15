@@ -348,7 +348,7 @@
             <label class="audio-option">
               <input type="radio" name="optAudio" value="with_audio">
               <span>Full Audio (Voice & Sound FX)</span>
-              <span class="tag tag-full">+210 MB</span>
+              <span class="tag tag-full">46 Chunks (~210 MB)</span>
             </label>
           </div>
         </div>
@@ -420,7 +420,6 @@
       let g_engineInitialized = false;
       let g_audioBufferReady = null;
 
-      // Rate limit pointer lock calls to prevent browser SecurityError spam
       let g_lastLockAttempt = 0;
       let g_pointerLockAvailable = true;
       const origRequestPointerLock = canvasElement.requestPointerLock.bind(canvasElement);
@@ -434,9 +433,7 @@
         try {
           const res = origRequestPointerLock.apply(this, arguments);
           if (res && typeof res.catch === 'function') {
-            return res.catch((err) => {
-              // Gracefully swallow browser rate-limit rejections
-            });
+            return res.catch(() => {});
           }
           return res || Promise.resolve();
         } catch(e) {
@@ -457,7 +454,6 @@
           canvasElement.style.cursor = 'default';
           document.body.style.cursor = 'default';
           g_pointerLockAvailable = false;
-          // Prevent engine re-locking cursor immediately on exit
           setTimeout(() => { g_pointerLockAvailable = true; }, 1000);
         } else {
           canvasElement.style.cursor = 'none';
@@ -593,7 +589,6 @@
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
-        // Suppress missing console log server telemetry
         if (url.includes('save_console_log')) {
           return new Response('{"ok":true}', { status: 200, statusText: 'OK' });
         }
@@ -723,7 +718,6 @@
         },
         printErr: function(text) {
           console.error(text);
-          // Filter out benign pointer lock warnings and WebGL font textures from fatal overlay
           if (/crash|fatal error|exception/i.test(text) && !/pointer lock|GL ERROR/i.test(text)) {
             showCrash(text);
           }
@@ -736,14 +730,13 @@
         },
         preRun: [
           function() {
-            // Write audio VPK directly to the Emscripten filesystem before engine boots
             if (g_loadAudio && g_audioBufferReady && typeof FS !== 'undefined') {
               try {
                 try { FS.mkdir('/portal'); } catch(e) {}
                 FS.writeFile('/portal/portal_audio.data', new Uint8Array(g_audioBufferReady));
-                console.log('[Audio Pipeline] Mounted portal_audio.data to /portal/ filesystem.');
+                console.log('[Audio Pipeline] Directly written portal_audio.data to virtual FS');
               } catch(err) {
-                console.warn('[Audio Pipeline] Direct FS write warning:', err);
+                console.warn('[Audio Pipeline] Direct FS write note:', err);
               }
             }
 
@@ -833,12 +826,11 @@
         }
 
         try {
-          // If Full Audio is selected, fetch all 46 parts and assemble BEFORE booting engine
           if (g_loadAudio) {
-            updateUI('STREAMING AUDIO', 'Preloading portal_audio.data (46 Chunks)...');
+            updateUI('STREAMING AUDIO', 'Downloading portal_audio.data (all 46 parts)...');
             g_audioBufferReady = await assembleSplit({ baseName: 'portal_audio.data', totalParts: 46 });
             window.audioLoaded = true;
-            console.log('[Audio Pipeline] Assembled audio package:', (g_audioBufferReady.byteLength / (1024 * 1024)).toFixed(1), 'MB');
+            console.log('[Audio Pipeline] All 46 audio chunks downloaded & combined:', (g_audioBufferReady.byteLength / (1024 * 1024)).toFixed(1), 'MB');
           }
 
           updateUI('EXECUTING', 'Compiling WebAssembly core...');
@@ -857,7 +849,6 @@
             return {};
           };
 
-          // Preload menu data map
           if (SPLIT_FILES['background1.data']) {
             assembleSplit({ baseName: 'background1.data', totalParts: SPLIT_FILES['background1.data'] }).catch(() => {});
           }
