@@ -145,61 +145,6 @@
         color: #00b4d8;
       }
 
-      .audio-selection-box {
-        background: rgba(10, 14, 20, 0.8);
-        border: 1px solid #21262d;
-        padding: 0.9rem 1rem;
-        margin-bottom: 1.2rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.6rem;
-      }
-
-      .audio-selection-title {
-        font-size: 0.7rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        color: #7d8590;
-        text-transform: uppercase;
-      }
-
-      .audio-options {
-        display: flex;
-        gap: 1rem;
-      }
-
-      .audio-option {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.78rem;
-        color: #c9d1d9;
-        cursor: pointer;
-      }
-
-      .audio-option input[type="radio"] {
-        accent-color: #00b4d8;
-        cursor: pointer;
-      }
-
-      .audio-option span.tag {
-        font-size: 0.65rem;
-        padding: 2px 5px;
-        border-radius: 2px;
-      }
-
-      .tag-fast {
-        background: rgba(255, 158, 0, 0.15);
-        color: #ffb703;
-        border: 1px solid rgba(255, 158, 0, 0.3);
-      }
-
-      .tag-full {
-        background: rgba(0, 180, 216, 0.15);
-        color: #38bdf8;
-        border: 1px solid rgba(0, 180, 216, 0.3);
-      }
-
       .btn-terminal {
         width: 100%;
         background: #00b4d8;
@@ -333,25 +278,9 @@
         </div>
 
         <div class="log-console">
-          <div class="log-entry">> <span>SYS_INIT</span>: CHUNK ASSET INTERFACE ACTIVE</div>
+          <div class="log-entry">> <span>SYS_INIT</span>: 46 CHUNK AUDIO STREAM ENFORCED</div>
           <div class="log-entry">> <span>THREADS</span>: SAB SECURITY BUFFER SYNCHRONIZED</div>
           <div class="log-entry">> <span>TARGET</span>: CHAMBER TESTCHMB_A_00.BSP</div>
-        </div>
-
-        <div class="audio-selection-box" id="audio-panel">
-          <div class="audio-selection-title">Acoustic Package Configuration</div>
-          <div class="audio-options">
-            <label class="audio-option">
-              <input type="radio" name="optAudio" value="no_audio" checked>
-              <span>Mute / Fast Load</span>
-              <span class="tag tag-fast">Bypass VPK</span>
-            </label>
-            <label class="audio-option">
-              <input type="radio" name="optAudio" value="with_audio">
-              <span>Full Audio (Voice & Sound FX)</span>
-              <span class="tag tag-full">46 Chunks (~210 MB)</span>
-            </label>
-          </div>
         </div>
 
         <button id="btn-start" class="btn-terminal" onclick="startApp()" disabled>AWAITING ISOLATION...</button>
@@ -366,7 +295,7 @@
           </div>
           <div class="meter-sub">
             <span id="txt-file">Verifying pack hashes...</span>
-            <span id="txt-bytes">0 MB / 170 MB</span>
+            <span id="txt-bytes">0 MB / 380 MB</span>
           </div>
         </div>
       </div>
@@ -381,6 +310,46 @@
     </div>
 
     <script type="text/javascript">
+      // Fix snappy cursor: clamp wild delta jumps caused by pointer lock wrapping
+      (function() {
+        const origAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function(type, listener, options) {
+          if (type === 'mousemove' && typeof listener === 'function') {
+            const wrappedListener = function(event) {
+              if (document.pointerLockElement) {
+                // Ignore single-frame aberrant teleport deltas that snap the camera
+                if (Math.abs(event.movementX) > 200 || Math.abs(event.movementY) > 200) {
+                  Object.defineProperty(event, 'movementX', { value: 0 });
+                  Object.defineProperty(event, 'movementY', { value: 0 });
+                }
+              }
+              return listener.apply(this, arguments);
+            };
+            return origAddEventListener.call(this, type, wrappedListener, options);
+          }
+          return origAddEventListener.call(this, type, listener, options);
+        };
+      })();
+
+      // Catch rate-limited pointerlock failures cleanly
+      (function() {
+        const origLock = Element.prototype.requestPointerLock;
+        let lastAttempt = 0;
+        Element.prototype.requestPointerLock = function() {
+          const now = performance.now();
+          if (document.pointerLockElement === this || (now - lastAttempt < 1000)) {
+            return Promise.resolve();
+          }
+          lastAttempt = now;
+          try {
+            const res = origLock.apply(this, arguments);
+            return (res && typeof res.catch === 'function') ? res.catch(() => {}) : Promise.resolve();
+          } catch(e) {
+            return Promise.resolve();
+          }
+        };
+      })();
+
       window.spinnerElement = document.createElement('div');
       window.statusElement = document.createElement('div');
       window.progressElement = document.createElement('progress');
@@ -404,7 +373,6 @@
       const canvasElement = document.getElementById('canvas');
       const launcherUi = document.getElementById('launcher-ui');
       const btnStart = document.getElementById('btn-start');
-      const audioPanel = document.getElementById('audio-panel');
       const progressBox = document.getElementById('progress-box');
       const txtStatus = document.getElementById('txt-status');
       const txtPct = document.getElementById('txt-pct');
@@ -414,22 +382,12 @@
       const crashOverlay = document.getElementById('crash-overlay');
       const crashLog = document.getElementById('crash-log');
 
-      let g_loadAudio = false;
-      let g_totalExpected = 170 * 1024 * 1024;
+      let g_totalExpected = 380 * 1024 * 1024;
       let g_downloaded = 0;
       let g_launched = false;
       let g_engineInitialized = false;
       let g_audioBufferReady = null;
 
-      document.querySelectorAll('input[name="optAudio"]').forEach((elem) => {
-        elem.addEventListener('change', (e) => {
-          g_loadAudio = (e.target.value === 'with_audio');
-          g_totalExpected = g_loadAudio ? (380 * 1024 * 1024) : (170 * 1024 * 1024);
-          updateUI(null, null, 0);
-        });
-      });
-
-      // Maintain user-activation unlock for Web Audio across interactions
       function resumeAudioStack() {
         if (typeof AL !== 'undefined' && AL.currentCtx && AL.currentCtx.audioCtx) {
           if (AL.currentCtx.audioCtx.state === 'suspended') {
@@ -557,10 +515,6 @@
           return new Response('{"ok":true}', { status: 200, statusText: 'OK' });
         }
 
-        if (!g_loadAudio && url.includes('portal_audio.data')) {
-          return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
-        }
-
         if (url.includes('portal_audio.data') && g_audioBufferReady) {
           return new Response(g_audioBufferReady.slice(0), { status: 200, statusText: 'OK' });
         }
@@ -597,19 +551,6 @@
               Object.defineProperty(xhr, 'status', { get: () => 200 });
               Object.defineProperty(xhr, 'statusText', { get: () => 'OK' });
               Object.defineProperty(xhr, 'readyState', { get: () => 4 });
-              if (typeof xhr.onload === 'function') xhr.onload(new ProgressEvent('load'));
-            }, 0);
-            return;
-          }
-
-          if (!g_loadAudio && targetUrl.includes('portal_audio.data')) {
-            setTimeout(() => {
-              const emptyBuf = new ArrayBuffer(0);
-              Object.defineProperty(xhr, 'status', { get: () => 200 });
-              Object.defineProperty(xhr, 'statusText', { get: () => 'OK' });
-              Object.defineProperty(xhr, 'readyState', { get: () => 4 });
-              Object.defineProperty(xhr, 'response', { get: () => emptyBuf });
-              Object.defineProperty(xhr, 'responseText', { get: () => '' });
               if (typeof xhr.onload === 'function') xhr.onload(new ProgressEvent('load'));
             }, 0);
             return;
@@ -711,8 +652,7 @@
         },
         preRun: [
           function() {
-            // Write portal_audio.data to all locations searched by the engine VFS
-            if (g_loadAudio && g_audioBufferReady && typeof FS !== 'undefined') {
+            if (g_audioBufferReady && typeof FS !== 'undefined') {
               try {
                 const u8 = new Uint8Array(g_audioBufferReady);
                 const writeTargets = [
@@ -727,7 +667,7 @@
                     FS.writeFile(target, u8);
                   } catch(e) {}
                 }
-                console.log('[Audio Pipeline] Mounted portal_audio.data directly into virtual FS.');
+                console.log('[Audio Pipeline] Directly mounted all 46 chunks of portal_audio.data');
               } catch(err) {
                 console.warn('[Audio Pipeline] PreRun write error:', err);
               }
@@ -780,7 +720,7 @@
               try { Atomics.store(HEAP32, lock >> 2, 0); Atomics.notify(HEAP32, lock >> 2); } catch(e) {}
               try { Atomics.store(HEAP32, lock, 0); Atomics.notify(HEAP32, lock); } catch(e) {}
             }
-            window.audioLoaded = g_loadAudio;
+            window.audioLoaded = true;
             if (window.dataLoader) {
               window.dataLoader.loadMapWithDeps(mapName).then(_release).catch(_release);
             } else if (typeof origFn === 'function') {
@@ -803,19 +743,16 @@
         g_launched = true;
 
         btnStart.style.display = 'none';
-        audioPanel.style.display = 'none';
         progressBox.style.display = 'block';
 
         resumeAudioStack();
 
         try {
-          // Strictly wait for all 46 audio chunks before starting engine if audio enabled
-          if (g_loadAudio) {
-            updateUI('STREAMING AUDIO', 'Downloading portal_audio.data (all 46 parts)...');
-            g_audioBufferReady = await assembleSplit({ baseName: 'portal_audio.data', totalParts: 46 });
-            window.audioLoaded = true;
-            console.log('[Audio Pipeline] All 46 audio chunks downloaded & verified:', (g_audioBufferReady.byteLength / (1024 * 1024)).toFixed(1), 'MB');
-          }
+          // Strictly wait for all 46 audio chunks before starting engine
+          updateUI('STREAMING AUDIO', 'Downloading portal_audio.data (all 46 parts)...');
+          g_audioBufferReady = await assembleSplit({ baseName: 'portal_audio.data', totalParts: 46 });
+          window.audioLoaded = true;
+          console.log('[Audio Pipeline] All 46 audio chunks downloaded & verified:', (g_audioBufferReady.byteLength / (1024 * 1024)).toFixed(1), 'MB');
 
           updateUI('EXECUTING', 'Compiling WebAssembly core...');
           const wasmRes = await origFetch('index.wasm');
