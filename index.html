@@ -310,7 +310,7 @@
     </div>
 
     <script type="text/javascript">
-      // Fix snappy cursor: clamp wild delta jumps caused by pointer lock wrapping
+      // Fix snappy cursor: clamp erratic mouse delta spikes over 200px
       (function() {
         const origAddEventListener = EventTarget.prototype.addEventListener;
         EventTarget.prototype.addEventListener = function(type, listener, options) {
@@ -511,28 +511,41 @@
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
         if (url.includes('save_console_log')) {
-          return new Response('{"ok":true}', { status: 200, statusText: 'OK' });
+          return new Response('{"ok":true}', { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } });
         }
 
-        // Suppress missing loose sound spam files by returning an empty valid audio placeholder or 404 handled response
         if (url.includes('.wav') || url.includes('.mp3')) {
-          return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
+          return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } });
         }
 
         if (url.includes('portal_audio.data') && g_audioBufferReady) {
-          return new Response(g_audioBufferReady.slice(0), { status: 200, statusText: 'OK' });
+          return new Response(g_audioBufferReady.slice(0), { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Content-Type': 'application/octet-stream' } });
         }
 
         const split = getSplitTarget(url);
         if (split) {
           try {
             const assembled = await assembleSplit(split);
-            return new Response(assembled, { status: 200, statusText: 'OK' });
+            return new Response(assembled, { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Content-Type': 'application/octet-stream' } });
           } catch(e) {
-            return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
+            return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } });
           }
         }
-        return origFetch(input, init);
+        
+        const res = await origFetch(input, init);
+        if (res.ok && url.endsWith('.wasm')) {
+          const buf = await res.arrayBuffer();
+          return new Response(buf, {
+            status: res.status,
+            statusText: res.statusText,
+            headers: {
+              'Content-Type': 'application/wasm',
+              'Cross-Origin-Opener-Policy': 'same-origin',
+              'Cross-Origin-Embedder-Policy': 'require-corp'
+            }
+          });
+        }
+        return res;
       };
 
       const OrigXHR = window.XMLHttpRequest;
