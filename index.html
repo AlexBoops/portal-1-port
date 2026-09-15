@@ -187,16 +187,16 @@
         border-radius: 2px;
       }
 
-      .tag-full {
-        background: rgba(0, 180, 216, 0.15);
-        color: #38bdf8;
-        border: 1px solid rgba(0, 180, 216, 0.3);
-      }
-
       .tag-fast {
         background: rgba(255, 158, 0, 0.15);
         color: #ffb703;
         border: 1px solid rgba(255, 158, 0, 0.3);
+      }
+
+      .tag-full {
+        background: rgba(0, 180, 216, 0.15);
+        color: #38bdf8;
+        border: 1px solid rgba(0, 180, 216, 0.3);
       }
 
       .btn-terminal {
@@ -337,18 +337,19 @@
           <div class="log-entry">> <span>TARGET</span>: CHAMBER TESTCHMB_A_00.BSP</div>
         </div>
 
+        <!-- 1st Option: Fast Load (Mute), 2nd Option: Full Audio -->
         <div class="audio-selection-box" id="audio-panel">
-          <div class="audio-selection-title">Acoustic Package Stream</div>
+          <div class="audio-selection-title">Acoustic Package Configuration</div>
           <div class="audio-options">
             <label class="audio-option">
-              <input type="radio" name="optAudio" value="with_audio" checked>
-              <span>Full Audio (Voice & Sound FX)</span>
-              <span class="tag tag-full">+210 MB</span>
-            </label>
-            <label class="audio-option">
-              <input type="radio" name="optAudio" value="no_audio">
+              <input type="radio" name="optAudio" value="no_audio" checked>
               <span>Mute / Fast Load</span>
               <span class="tag tag-fast">Bypass VPK</span>
+            </label>
+            <label class="audio-option">
+              <input type="radio" name="optAudio" value="with_audio">
+              <span>Full Audio (Voice & Sound FX)</span>
+              <span class="tag tag-full">+210 MB</span>
             </label>
           </div>
         </div>
@@ -365,7 +366,7 @@
           </div>
           <div class="meter-sub">
             <span id="txt-file">Verifying pack hashes...</span>
-            <span id="txt-bytes">0 MB / 380 MB</span>
+            <span id="txt-bytes">0 MB / 170 MB</span>
           </div>
         </div>
       </div>
@@ -384,6 +385,7 @@
       window.statusElement = document.createElement('div');
       window.progressElement = document.createElement('progress');
 
+      // Exact split chunks from the repository manifest
       const SPLIT_FILES = {
         'portal_audio.data': 46,
         'background1.data': 7,
@@ -413,15 +415,16 @@
       const crashOverlay = document.getElementById('crash-overlay');
       const crashLog = document.getElementById('crash-log');
 
-      let g_loadAudio = true;
-      let g_totalExpected = 380 * 1024 * 1024;
+      // Default: 1st option (Mute / Fast Load)
+      let g_loadAudio = false;
+      let g_totalExpected = 170 * 1024 * 1024;
       let g_downloaded = 0;
       let g_launched = false;
       let g_engineInitialized = false;
 
       document.querySelectorAll('input[name="optAudio"]').forEach((elem) => {
         elem.addEventListener('change', (e) => {
-          g_loadAudio = e.target.value === 'with_audio';
+          g_loadAudio = (e.target.value === 'with_audio');
           g_totalExpected = g_loadAudio ? (380 * 1024 * 1024) : (170 * 1024 * 1024);
           updateUI(null, null, 0);
         });
@@ -572,6 +575,7 @@
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
+        // If audio is disabled, respond with empty payload to unblock requests without 404
         if (!g_loadAudio && url.includes('portal_audio.data')) {
           return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
         }
@@ -736,7 +740,7 @@
               try { Atomics.store(HEAP32, lock >> 2, 0); Atomics.notify(HEAP32, lock >> 2); } catch(e) {}
               try { Atomics.store(HEAP32, lock, 0); Atomics.notify(HEAP32, lock); } catch(e) {}
             }
-            window.audioLoaded = true;
+            window.audioLoaded = g_loadAudio;
             if (window.dataLoader) {
               window.dataLoader.loadMapWithDeps(mapName).then(_release).catch(_release);
             } else if (typeof origFn === 'function') {
@@ -763,6 +767,7 @@
         progressBox.style.display = 'block';
         updateUI('EXECUTING', 'Compiling WebAssembly core...');
 
+        // Unlock browser AudioContext on user interaction
         if (g_loadAudio && typeof AL !== 'undefined' && AL.currentCtx && AL.currentCtx.audioCtx && AL.currentCtx.audioCtx.state === 'suspended') {
           AL.currentCtx.audioCtx.resume();
         }
@@ -783,6 +788,23 @@
             return {};
           };
 
+          // If Full Audio was chosen, stitch all 46 parts in parallel and mount
+          if (g_loadAudio) {
+            updateUI('STREAMING AUDIO', 'Preloading portal_audio.data...');
+            assembleSplit({ baseName: 'portal_audio.data', totalParts: 46 }).then((audioBuf) => {
+              window.audioLoaded = true;
+              console.log('[Audio Pipeline] portal_audio.data assembled (' + (audioBuf.byteLength / (1024 * 1024)).toFixed(1) + ' MB)');
+              if (typeof FS !== 'undefined') {
+                try {
+                  FS.writeFile('/portal/portal_audio.data', new Uint8Array(audioBuf));
+                } catch(e) {}
+              }
+            }).catch((err) => {
+              console.warn('[Audio Pipeline] Audio package fetch failed:', err);
+            });
+          }
+
+          // Preload base menu map
           if (SPLIT_FILES['background1.data']) {
             assembleSplit({ baseName: 'background1.data', totalParts: SPLIT_FILES['background1.data'] }).catch(() => {});
           }
