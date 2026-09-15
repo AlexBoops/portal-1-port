@@ -3,21 +3,34 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, minimum-scale=1, maximum-scale=1, user-scalable=no">
-    <title>Portal</title>
+    <title>PORTAL // APERTURE LABORATORIES</title>
 
-    <!-- First element in head: COOP/COEP service worker -->
     <script src="coi-serviceworker.js"></script>
 
     <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      @font-face {
+        font-family: 'ApertureMono';
+        src: local('Consolas'), local('Lucida Console'), local('Courier New'), monospace;
+      }
+
       html, body {
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background-color: #000;
-        color: #fff;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+        background-color: #0d0f12;
+        color: #dbe2ea;
+        font-family: 'ApertureMono', -apple-system, monospace;
       }
+
+      /* Game Canvas Viewport */
       #canvas {
         width: 100vw;
         height: 100vh;
@@ -27,128 +40,227 @@
         left: 0;
         outline: none;
         background: #000;
+        cursor: default;
       }
 
+      /* Aperture Science Terminal Theme */
       #launcher-ui {
         position: fixed;
         inset: 0;
         z-index: 50;
-        background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+        background: radial-gradient(circle at 50% 45%, #18202c 0%, #0c1017 70%, #05070a 100%);
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         padding: 2rem;
       }
-      #launcher-ui.hidden { display: none !important; }
 
-      .card {
-        background: rgba(15, 23, 42, 0.9);
-        border: 1px solid #1e293b;
-        border-radius: 6px;
-        padding: 2rem 2.5rem;
-        max-width: 520px;
-        width: 100%;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.8);
-      }
-      .title {
-        font-size: 1.5rem;
-        font-weight: 800;
-        letter-spacing: 0.15em;
-        color: #00b4d8;
-        text-transform: uppercase;
-        margin-bottom: 0.4rem;
-      }
-      .desc {
-        font-size: 0.82rem;
-        color: #64748b;
-        line-height: 1.5;
-        margin-bottom: 1.75rem;
-      }
-      .btn {
-        width: 100%;
-        background: #00b4d8;
-        color: #000;
-        border: none;
-        padding: 0.9rem;
-        font-weight: 700;
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        border-radius: 3px;
-        cursor: pointer;
-        transition: background 0.2s, opacity 0.2s;
-      }
-      .btn:hover:not(:disabled) { background: #38bdf8; }
-      .btn:disabled {
-        background: #1e293b;
-        color: #64748b;
-        cursor: wait;
+      /* CRT Scanline Overlay */
+      #launcher-ui::before {
+        content: " ";
+        display: block;
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+        background-size: 100% 4px;
+        z-index: 51;
+        pointer-events: none;
+        opacity: 0.6;
       }
 
-      #progress-box { display: none; width: 100%; margin-top: 1.5rem; }
-      .stat-row {
+      #launcher-ui.hidden {
+        display: none !important;
+      }
+
+      .terminal-frame {
+        position: relative;
+        z-index: 52;
+        background: rgba(13, 17, 23, 0.94);
+        border: 1px solid #30363d;
+        border-top: 3px solid #00b4d8;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), 0 0 30px rgba(0, 180, 216, 0.1);
+        width: 100%;
+        max-width: 580px;
+        padding: 2.2rem;
+      }
+
+      .header-meta {
         display: flex;
         justify-content: space-between;
-        font-size: 0.75rem;
-        color: #cbd5e1;
+        align-items: center;
+        border-bottom: 1px dashed #21262d;
+        padding-bottom: 0.8rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.72rem;
+        letter-spacing: 0.15em;
+        color: #7d8590;
+      }
+
+      .header-meta .tag-id {
+        color: #00b4d8;
+        font-weight: 700;
+      }
+
+      .brand-row {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
         margin-bottom: 0.4rem;
       }
-      .track {
+
+      .brand-title {
+        font-size: 2.1rem;
+        font-weight: 900;
+        letter-spacing: 0.18em;
+        color: #f0f6fc;
+        text-transform: uppercase;
+        text-shadow: 0 0 16px rgba(0, 180, 216, 0.4);
+      }
+
+      .brand-sub {
+        font-size: 0.75rem;
+        color: #ff9e00;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+
+      .log-console {
+        background: #06090e;
+        border: 1px solid #161b22;
+        padding: 0.9rem 1.1rem;
+        margin: 1.4rem 0;
+        font-size: 0.78rem;
+        line-height: 1.6;
+        color: #8b949e;
+      }
+
+      .log-console .log-entry {
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .log-console .log-entry span {
+        color: #00b4d8;
+      }
+
+      .btn-terminal {
         width: 100%;
-        height: 6px;
-        background: #1e293b;
-        border-radius: 2px;
+        background: #00b4d8;
+        color: #040d12;
+        border: 1px solid #00b4d8;
+        padding: 1rem;
+        font-family: inherit;
+        font-size: 0.88rem;
+        font-weight: 800;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: all 0.15s ease-out;
+      }
+
+      .btn-terminal:hover:not(:disabled) {
+        background: #38bdf8;
+        border-color: #38bdf8;
+        box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+      }
+
+      .btn-terminal:disabled {
+        background: #161b22;
+        border-color: #21262d;
+        color: #484f58;
+        cursor: not-allowed;
+      }
+
+      #progress-box {
+        display: none;
+        margin-top: 1.4rem;
+      }
+
+      .meter-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.74rem;
+        color: #8b949e;
+        margin-bottom: 0.4rem;
+        letter-spacing: 0.08em;
+      }
+
+      .meter-labels #txt-pct {
+        color: #00b4d8;
+        font-weight: bold;
+      }
+
+      .meter-rail {
+        width: 100%;
+        height: 8px;
+        background: #06090e;
+        border: 1px solid #21262d;
         overflow: hidden;
       }
-      .bar {
+
+      .meter-fill {
         width: 0%;
         height: 100%;
-        background: #00b4d8;
+        background: linear-gradient(90deg, #0077b6, #00b4d8);
+        box-shadow: 0 0 10px rgba(0, 180, 216, 0.5);
         transition: width 0.08s linear;
       }
-      .sub-row {
+
+      .meter-sub {
         display: flex;
         justify-content: space-between;
-        font-size: 0.7rem;
-        color: #64748b;
-        margin-top: 0.4rem;
+        font-size: 0.68rem;
+        color: #484f58;
+        margin-top: 0.45rem;
       }
 
       #crash-overlay {
         position: fixed;
         inset: 0;
         z-index: 100;
-        background: rgba(0,0,0,0.92);
+        background: rgba(4, 7, 10, 0.95);
         display: none;
         align-items: center;
         justify-content: center;
         padding: 2rem;
       }
-      #crash-overlay.active { display: flex !important; }
+
+      #crash-overlay.active {
+        display: flex !important;
+      }
+
       .crash-card {
-        background: #090303;
-        border: 1px solid #7f1d1d;
-        border-radius: 4px;
-        padding: 1.5rem;
-        max-width: 650px;
+        background: #0d1117;
+        border: 1px solid #f85149;
+        max-width: 680px;
         width: 100%;
+        padding: 1.8rem;
+        box-shadow: 0 0 40px rgba(248, 81, 73, 0.2);
       }
+
       .crash-title {
-        color: #f87171;
-        font-weight: 700;
-        font-size: 0.95rem;
-        margin-bottom: 0.75rem;
+        color: #f85149;
+        font-size: 0.88rem;
+        font-weight: bold;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        margin-bottom: 0.8rem;
       }
+
       .crash-pre {
-        background: #000;
-        color: #fca5a5;
+        background: #06090e;
+        color: #ff7b72;
         font-size: 0.75rem;
-        padding: 0.75rem;
-        max-height: 250px;
+        padding: 1rem;
+        max-height: 260px;
         overflow-y: auto;
         white-space: pre-wrap;
-        margin-bottom: 1rem;
+        border: 1px solid #21262d;
+        margin-bottom: 1.2rem;
       }
     </style>
   </head>
@@ -156,18 +268,35 @@
     <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
 
     <div id="launcher-ui">
-      <div class="card">
-        <div class="title">Portal Web</div>
-        <div class="desc">Source Engine WASM. Hardware-accelerated local execution profile.</div>
-        <button id="btn-start" class="btn" onclick="startApp()" disabled>Initializing Environment...</button>
+      <div class="terminal-frame">
+        <div class="header-meta">
+          <span>APERTURE LABORATORIES ENRICHMENT CORE</span>
+          <span class="tag-id">STATION-04 // RELEASE</span>
+        </div>
+
+        <div class="brand-row">
+          <div class="brand-title">PORTAL</div>
+          <div class="brand-sub">WASM-SRC-1.0</div>
+        </div>
+
+        <div class="log-console">
+          <div class="log-entry">> <span>SYS_INIT</span>: GITHACK ASSET SPLIT INTERFACE ACTIVE</div>
+          <div class="log-entry">> <span>THREADS</span>: SAB SECURITY BUFFER SYNCHRONIZED</div>
+          <div class="log-entry">> <span>TARGET</span>: CHAMBER TESTCHMB_A_00.BSP</div>
+        </div>
+
+        <button id="btn-start" class="btn-terminal" onclick="startApp()" disabled>AWAITING ISOLATION...</button>
+
         <div id="progress-box">
-          <div class="stat-row">
-            <span id="txt-status">INITIALIZING</span>
+          <div class="meter-labels">
+            <span id="txt-status">STREAMING ASSETS</span>
             <span id="txt-pct">0%</span>
           </div>
-          <div class="track"><div id="bar-fill" class="bar"></div></div>
-          <div class="sub-row">
-            <span id="txt-file">Mounting filesystem...</span>
+          <div class="meter-rail">
+            <div id="bar-fill" class="meter-fill"></div>
+          </div>
+          <div class="meter-sub">
+            <span id="txt-file">Verifying pack hashes...</span>
             <span id="txt-bytes">0 MB / 380 MB</span>
           </div>
         </div>
@@ -176,9 +305,9 @@
 
     <div id="crash-overlay">
       <div class="crash-card">
-        <div class="crash-title">Runtime Intercept Crash</div>
+        <div class="crash-title">RUNTIME INTERCEPT HALT</div>
         <pre id="crash-log" class="crash-pre"></pre>
-        <button class="btn" onclick="location.reload()">Reload Container</button>
+        <button class="btn-terminal" onclick="location.reload()">RE-INITIALIZE ENGINE</button>
       </div>
     </div>
 
@@ -214,16 +343,59 @@
       let g_totalExpected = 380 * 1024 * 1024;
       let g_downloaded = 0;
       let g_launched = false;
+      let g_engineInitialized = false;
 
-      // Gate startup until crossOriginIsolated is established
+      /* =========================================================
+         FIX: POINTER LOCK & ESCAPE CURSOR RE-APPEARANCE
+         ========================================================= */
+
+      // Force canvas to restore pointer visibility whenever escape unlocks the mouse
+      document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement !== canvasElement) {
+          canvasElement.style.cursor = 'default';
+          document.body.style.cursor = 'default';
+        } else {
+          canvasElement.style.cursor = 'none';
+        }
+      });
+
+      function requestEngineLock() {
+        if (!g_engineInitialized) return;
+        if (document.pointerLockElement === canvasElement) return;
+
+        try {
+          const promise = canvasElement.requestPointerLock();
+          if (promise && typeof promise.catch === 'function') {
+            promise.catch(() => {});
+          }
+        } catch(e) {}
+      }
+
+      // Re-grab lock on click if game is running; unlock shows normal cursor
+      canvasElement.addEventListener('click', requestEngineLock);
+
+      // Handle Escape key: explicitly restore pointer visibility on canvas
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Escape' || e.key === 'Escape') {
+          if (document.pointerLockElement) {
+            document.exitPointerLock();
+          }
+          canvasElement.style.cursor = 'default';
+          document.body.style.cursor = 'default';
+        }
+      });
+
+      /* =========================================================
+         ISOLATION & UI STATE HANDLERS
+         ========================================================= */
+
       function checkIsolation() {
         if (window.crossOriginIsolated) {
           btnStart.disabled = false;
-          btnStart.textContent = 'Start Engine';
+          btnStart.textContent = 'INITIALIZE SYSTEM';
         } else {
           btnStart.disabled = true;
-          btnStart.textContent = 'Enabling SharedArrayBuffer...';
-          // If service worker is ready but page hasn't reloaded under its control, reload
+          btnStart.textContent = 'AWAITING ISOLATION...';
           if (navigator.serviceWorker && navigator.serviceWorker.controller) {
             window.location.reload();
           }
@@ -232,7 +404,6 @@
 
       window.addEventListener('load', () => {
         checkIsolation();
-        // Check again after a second in case SW registered late
         setTimeout(checkIsolation, 1000);
       });
 
@@ -253,20 +424,11 @@
       function showCrash(err) {
         crashLog.textContent = (err && err.stack) ? err.stack : (typeof err === 'string' ? err : JSON.stringify(err));
         crashOverlay.classList.add('active');
+        canvasElement.style.cursor = 'default';
       }
 
       window.onerror = (m, u, l, c, e) => showCrash(e || m);
       window.onunhandledrejection = (e) => showCrash(e.reason);
-
-      function doPointerLock() {
-        if (document.pointerLockElement !== canvasElement) {
-          canvasElement.requestPointerLock().catch(() => {});
-        }
-      }
-      canvasElement.addEventListener('click', doPointerLock);
-      document.addEventListener('keydown', () => {
-        if (launcherUi.classList.contains('hidden')) doPointerLock();
-      });
 
       var g_pendingResize = null;
       window.addEventListener('resize', () => {
@@ -278,7 +440,10 @@
         }
       });
 
-      // Split file stitcher using purely relative local paths
+      /* =========================================================
+         LOCAL REPOSITORY CHUNK ASSEMBLY
+         ========================================================= */
+
       async function fetchPart(baseName, partIdx) {
         const pad4 = String(partIdx).padStart(4, '0');
         const paths = [
@@ -390,25 +555,31 @@
         return xhr;
       };
 
+      /* =========================================================
+         SOURCE ENGINE WASM BINDINGS
+         ========================================================= */
+
       var Module = {
         canvas: canvasElement,
         locateFile: (p) => p,
         totalDependencies: 0,
         setStatus: (text) => {
-          if (text) updateUI('LOADING', text);
+          if (text) updateUI('INITIALIZING', text);
         },
         monitorRunDependencies: (left) => {
-          if (left > 0) updateUI('RESOLVING MODULES', `Mounting ${left} runtime modules...`);
+          if (left > 0) updateUI('MOUNTING LIBS', `Linking ${left} dynamic libraries...`);
         },
         print: function(text) {
           console.log(text);
           if (text.includes('Game initializing') || text.includes('Host_Init') || text.includes('Map: background1') || text.includes('Map: testchmb_a_00')) {
             txtPct.textContent = '100%';
             barFill.style.width = '100%';
-            updateUI('READY', 'Chamber Loaded');
+            updateUI('COMPLETE', 'Chamber Loaded');
             setTimeout(() => {
               launcherUi.classList.add('hidden');
+              g_engineInitialized = true;
               canvasElement.focus();
+              requestEngineLock();
             }, 500);
           }
         },
@@ -441,10 +612,12 @@
                   if (chk && chk.exists) {
                     txtPct.textContent = '100%';
                     barFill.style.width = '100%';
-                    updateUI('READY', 'Entering Chamber 00...');
+                    updateUI('COMPLETE', 'Chamber 00 ready.');
                     setTimeout(() => {
                       launcherUi.classList.add('hidden');
+                      g_engineInitialized = true;
                       canvasElement.focus();
+                      requestEngineLock();
                     }, 1200);
                     clearInterval(watchdog);
                   }
@@ -497,7 +670,7 @@
 
       function startApp() {
         if (!window.crossOriginIsolated) {
-          alert('SharedArrayBuffer isolation is not active yet. Reloading page...');
+          alert('SharedArrayBuffer isolation is not active yet. Reloading...');
           window.location.reload();
           return;
         }
@@ -507,7 +680,7 @@
 
         btnStart.style.display = 'none';
         progressBox.style.display = 'block';
-        updateUI('STARTING RUNTIME', 'Loading index.js...');
+        updateUI('EXECUTING', 'Loading engine core...');
 
         if (typeof AL !== 'undefined' && AL.currentCtx && AL.currentCtx.audioCtx && AL.currentCtx.audioCtx.state === 'suspended') {
           AL.currentCtx.audioCtx.resume();
