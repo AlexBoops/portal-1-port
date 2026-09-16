@@ -425,7 +425,7 @@
         const totMB = (g_totalExpected / (1024 * 1024)).toFixed(1);
         txtBytes.textContent = `${dlMB} MB / ${totMB} MB`;
 
-        const pct = Math.min(99, Math.round((g_downloaded / g_totalExpected) * 100));
+        const pct = Math.min(100, Math.round((g_downloaded / g_totalExpected) * 100));
         txtPct.textContent = `${pct}%`;
         barFill.style.width = `${pct}%`;
       }
@@ -510,42 +510,29 @@
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
+        // Only intercept asset files, never touch navigation or main page fetches
         if (url.includes('save_console_log')) {
-          return new Response('{"ok":true}', { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } });
+          return new Response('{"ok":true}', { status: 200, statusText: 'OK' });
         }
 
         if (url.includes('.wav') || url.includes('.mp3')) {
-          return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } });
+          return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
         }
 
         if (url.includes('portal_audio.data') && g_audioBufferReady) {
-          return new Response(g_audioBufferReady.slice(0), { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Content-Type': 'application/octet-stream' } });
+          return new Response(g_audioBufferReady.slice(0), { status: 200, statusText: 'OK' });
         }
 
         const split = getSplitTarget(url);
         if (split) {
           try {
             const assembled = await assembleSplit(split);
-            return new Response(assembled, { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Content-Type': 'application/octet-stream' } });
+            return new Response(assembled, { status: 200, statusText: 'OK' });
           } catch(e) {
-            return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK', headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } });
+            return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
           }
         }
-        
-        const res = await origFetch(input, init);
-        if (res.ok && url.endsWith('.wasm')) {
-          const buf = await res.arrayBuffer();
-          return new Response(buf, {
-            status: res.status,
-            statusText: res.statusText,
-            headers: {
-              'Content-Type': 'application/wasm',
-              'Cross-Origin-Opener-Policy': 'same-origin',
-              'Cross-Origin-Embedder-Policy': 'require-corp'
-            }
-          });
-        }
-        return res;
+        return origFetch(input, init);
       };
 
       const OrigXHR = window.XMLHttpRequest;
