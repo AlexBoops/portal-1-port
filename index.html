@@ -510,7 +510,11 @@
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
-        // Only intercept asset files, never touch navigation or main page fetches
+        // Safely bypass standard page navigation and script requests so service worker never rejects them
+        if (!url.includes('chunks/') && !getSplitTarget(url) && !url.includes('portal_audio.data')) {
+          return origFetch(input, init);
+        }
+
         if (url.includes('save_console_log')) {
           return new Response('{"ok":true}', { status: 200, statusText: 'OK' });
         }
@@ -672,21 +676,24 @@
             if (g_audioBufferReady && typeof FS !== 'undefined') {
               try {
                 const u8 = new Uint8Array(g_audioBufferReady);
-                const writeTargets = [
-                  '/portal_audio.data',
-                  '/portal/portal_audio.data',
-                  '/hl2/portal_audio.data'
+                // Synchronously mount into Emscripten VFS using FS.createDataFile to guarantee presence for C++ engine
+                const writePaths = [
+                  { parent: '/', name: 'portal_audio.data' },
+                  { parent: '/portal', name: 'portal_audio.data' },
+                  { parent: '/hl2', name: 'portal_audio.data' }
                 ];
-                for (const target of writeTargets) {
+                for (const target of writePaths) {
                   try {
-                    const dir = target.substring(0, target.lastIndexOf('/'));
-                    if (dir) FS.mkdirTree(dir);
-                    FS.writeFile(target, u8);
+                    if (target.parent !== '/') {
+                      try { FS.mkdir(target.parent); } catch(e) {}
+                    }
+                    try { FS.unlink(target.parent + (target.parent === '/' ? '' : '/') + target.name); } catch(e) {}
+                    FS.createDataFile(target.parent, target.name, u8, true, true, true);
                   } catch(e) {}
                 }
-                console.log('[Audio Pipeline] Directly mounted all 46 chunks of portal_audio.data');
+                console.log('[Audio Pipeline] Synchronously injected portal_audio.data via FS.createDataFile');
               } catch(err) {
-                console.warn('[Audio Pipeline] PreRun write error:', err);
+                console.warn('[Audio Pipeline] PreRun mount warning:', err);
               }
             }
 
