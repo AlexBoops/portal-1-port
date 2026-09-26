@@ -310,16 +310,7 @@
     </div>
 
     <script type="text/javascript">
-      // Force AudioContext sample rate to 44100 matching index.js
-      if (typeof window !== 'undefined') {
-        var OrigAC = window.AudioContext || window.webkitAudioContext;
-        window.AudioContext = function(opts) {
-          return new OrigAC(Object.assign({ sampleRate: 44100 }, opts || {}));
-        };
-        if (window.webkitAudioContext) window.webkitAudioContext = window.AudioContext;
-      }
-
-      // Mouse delta clamping
+      // Clamping mouse delta spikes
       (function() {
         const origAddEventListener = EventTarget.prototype.addEventListener;
         EventTarget.prototype.addEventListener = function(type, listener, options) {
@@ -433,7 +424,12 @@
       }
 
       function showCrash(err) {
-        crashLog.textContent = (err && err.stack) ? err.stack : (typeof err === 'string' ? err : JSON.stringify(err));
+        // Filter out benign SDL/GL warnings from crashing the UI
+        const str = String(err && err.stack ? err.stack : err);
+        if (/pointer lock|GL ERROR|GL_INVALID|failed to load sound|TouchScreen/i.test(str)) {
+          return;
+        }
+        crashLog.textContent = str;
         crashOverlay.classList.add('active');
         canvasElement.style.cursor = 'default';
       }
@@ -508,7 +504,7 @@
         return null;
       }
 
-      // Unpack portal_audio.data container directly into Emscripten virtual filesystem
+      // Unpacks portal_audio.data container directly into Emscripten virtual filesystem
       function unpackAudioArchive(buffer) {
         if (!buffer || typeof FS === 'undefined') return;
         try {
@@ -539,8 +535,9 @@
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
+        // Catch crash logger post to prevent 404 network errors
         if (url.includes('save_console_log')) {
-          return new Response('{"ok":true}', { status: 200, statusText: 'OK' });
+          return new Response('{"ok":true}', { status: 200, statusText: 'OK', headers: { 'Content-Type': 'application/json' } });
         }
 
         if (url.includes('portal_audio.data') && g_audioBufferReady) {
@@ -683,7 +680,7 @@
           if (text.includes('Cache materials') || text.includes('IDirect3DDevice9::Create')) {
             dismissLauncher();
           }
-          if (/crash|fatal error|exception/i.test(text) && !/pointer lock|GL ERROR|GL_INVALID|Failed to load sound/i.test(text)) {
+          if (/crash|fatal error|exception/i.test(text) && !/pointer lock|GL ERROR|GL_INVALID|failed to load sound|TouchScreen/i.test(text)) {
             showCrash(text);
           }
         },
@@ -697,7 +694,6 @@
         },
         preRun: [
           function() {
-            // Unpack all individual sound files from portal_audio.data into FS
             if (g_audioBufferReady && typeof FS !== 'undefined') {
               unpackAudioArchive(g_audioBufferReady);
             }
@@ -738,7 +734,6 @@
         ]
       };
 
-      // Let Module.downloadMap unpack audio when maps load if not yet extracted
       let _downloadMapHandler = null;
       Object.defineProperty(Module, 'downloadMap', {
         configurable: true,
@@ -766,6 +761,11 @@
       });
 
       async function startApp() {
+        if (!window.crossOriginIsolated) {
+          alert('SharedArrayBuffer isolation is not active yet.');
+          return;
+        }
+
         if (g_launched) return;
         g_launched = true;
 
