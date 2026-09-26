@@ -1,3 +1,4 @@
+html
 <!DOCTYPE html>
 <html lang="en-us">
   <head>
@@ -279,11 +280,11 @@
 
         <div class="log-console">
           <div class="log-entry">> <span>SYS_INIT</span>: 46 CHUNK AUDIO STREAM ENFORCED</div>
-          <div class="log-entry">> <span>THREADS</span>: SAB SECURITY BUFFER SYNCHRONIZED</div>
+          <div class="log-entry">> <span>AUDIO_VFS</span>: DYNAMIC EXTRACTION READY</div>
           <div class="log-entry">> <span>TARGET</span>: CHAMBER TESTCHMB_A_00.BSP</div>
         </div>
 
-        <button id="btn-start" class="btn-terminal" onclick="startApp()" disabled>AWAITING ISOLATION...</button>
+        <button id="btn-start" class="btn-terminal" onclick="startApp()">INITIALIZE SYSTEM</button>
 
         <div id="progress-box">
           <div class="meter-labels">
@@ -310,7 +311,16 @@
     </div>
 
     <script type="text/javascript">
-      // Fix snappy cursor: clamp erratic mouse delta spikes over 200px
+      // Force AudioContext sample rate to 44100 matching index.js
+      if (typeof window !== 'undefined') {
+        var OrigAC = window.AudioContext || window.webkitAudioContext;
+        window.AudioContext = function(opts) {
+          return new OrigAC(Object.assign({ sampleRate: 44100 }, opts || {}));
+        };
+        if (window.webkitAudioContext) window.webkitAudioContext = window.AudioContext;
+      }
+
+      // Mouse delta clamping
       (function() {
         const origAddEventListener = EventTarget.prototype.addEventListener;
         EventTarget.prototype.addEventListener = function(type, listener, options) {
@@ -409,24 +419,6 @@
       window.addEventListener('keydown', resumeAudioStack);
       window.addEventListener('pointerdown', resumeAudioStack);
 
-      function checkIsolation() {
-        if (window.crossOriginIsolated) {
-          btnStart.disabled = false;
-          btnStart.textContent = 'INITIALIZE SYSTEM';
-        } else {
-          btnStart.disabled = true;
-          btnStart.textContent = 'AWAITING ISOLATION...';
-          if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-            window.location.reload();
-          }
-        }
-      }
-
-      window.addEventListener('load', () => {
-        checkIsolation();
-        setTimeout(checkIsolation, 1000);
-      });
-
       function updateUI(status, file, bytesAdded) {
         if (status) txtStatus.textContent = status;
         if (file) txtFile.textContent = file;
@@ -517,6 +509,33 @@
         return null;
       }
 
+      // Unpack portal_audio.data container directly into Emscripten virtual filesystem
+      function unpackAudioArchive(buffer) {
+        if (!buffer || typeof FS === 'undefined') return;
+        try {
+          const dv = new DataView(buffer);
+          let offset = 0;
+          const decoder = new TextDecoder();
+          let count = 0;
+
+          while (offset < dv.byteLength) {
+            const pathLen = dv.getInt32(offset, true);
+            const dataLen = dv.getInt32(offset + 4, true);
+            const path = decoder.decode(new Uint8Array(dv.buffer, offset + 8, pathLen));
+            const blob = new Uint8Array(dv.buffer, offset + 8 + pathLen, dataLen);
+            offset += 8 + pathLen + dataLen;
+
+            const dir = path.replace(/\/[^\/]+$/, '');
+            try { FS.mkdirTree(dir); } catch(e) {}
+            try { FS.writeFile(path, blob); } catch(e) {}
+            count++;
+          }
+          console.log(`[Audio Pipeline] Successfully extracted ${count} audio files into virtual filesystem.`);
+        } catch(err) {
+          console.warn('[Audio Pipeline] Extraction error:', err);
+        }
+      }
+
       const origFetch = window.fetch.bind(window);
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
@@ -539,7 +558,6 @@
           }
         }
 
-        // Automatic fallback into chunks/ if an un-split asset (like background2.data or testchmb_a_01.data) is requested from root
         try {
           const response = await origFetch(input, init);
           if (!response.ok && !url.includes('chunks/') && url.endsWith('.data')) {
@@ -680,27 +698,9 @@
         },
         preRun: [
           function() {
+            // Unpack all individual sound files from portal_audio.data into FS
             if (g_audioBufferReady && typeof FS !== 'undefined') {
-              try {
-                const u8 = new Uint8Array(g_audioBufferReady);
-                const writePaths = [
-                  { parent: '/', name: 'portal_audio.data' },
-                  { parent: '/portal', name: 'portal_audio.data' },
-                  { parent: '/hl2', name: 'portal_audio.data' }
-                ];
-                for (const target of writePaths) {
-                  try {
-                    if (target.parent !== '/') {
-                      try { FS.mkdir(target.parent); } catch(e) {}
-                    }
-                    try { FS.unlink(target.parent + (target.parent === '/' ? '' : '/') + target.name); } catch(e) {}
-                    FS.createDataFile(target.parent, target.name, u8, true, true, true);
-                  } catch(e) {}
-                }
-                console.log('[Audio Pipeline] Synchronously injected portal_audio.data via FS.createDataFile');
-              } catch(err) {
-                console.warn('[Audio Pipeline] PreRun mount warning:', err);
-              }
+              unpackAudioArchive(g_audioBufferReady);
             }
 
             const origRemoveDep = Module.removeRunDependency;
@@ -739,6 +739,7 @@
         ]
       };
 
+      // Let Module.downloadMap unpack audio when maps load if not yet extracted
       let _downloadMapHandler = null;
       Object.defineProperty(Module, 'downloadMap', {
         configurable: true,
@@ -749,6 +750,9 @@
             function _release() {
               try { Atomics.store(HEAP32, lock >> 2, 0); Atomics.notify(HEAP32, lock >> 2); } catch(e) {}
               try { Atomics.store(HEAP32, lock, 0); Atomics.notify(HEAP32, lock); } catch(e) {}
+            }
+            if (g_audioBufferReady && typeof FS !== 'undefined') {
+              unpackAudioArchive(g_audioBufferReady);
             }
             window.audioLoaded = true;
             if (window.dataLoader) {
@@ -763,12 +767,6 @@
       });
 
       async function startApp() {
-        if (!window.crossOriginIsolated) {
-          alert('SharedArrayBuffer isolation is not active yet. Reloading...');
-          window.location.reload();
-          return;
-        }
-
         if (g_launched) return;
         g_launched = true;
 
@@ -781,7 +779,7 @@
           updateUI('STREAMING AUDIO', 'Downloading portal_audio.data (all 46 parts)...');
           g_audioBufferReady = await assembleSplit({ baseName: 'portal_audio.data', totalParts: 46 });
           window.audioLoaded = true;
-          console.log('[Audio Pipeline] All 46 audio chunks downloaded & verified:', (g_audioBufferReady.byteLength / (1024 * 1024)).toFixed(1), 'MB');
+          console.log('[Audio Pipeline] All 46 audio chunks assembled:', (g_audioBufferReady.byteLength / (1024 * 1024)).toFixed(1), 'MB');
 
           updateUI('EXECUTING', 'Compiling WebAssembly core...');
           const wasmRes = await origFetch('index.wasm');
