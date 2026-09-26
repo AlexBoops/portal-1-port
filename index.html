@@ -388,15 +388,26 @@
       let g_audioBufferReady = null;
 
       function resumeAudioStack() {
-        if (typeof AL !== 'undefined' && AL.currentCtx && AL.currentCtx.audioCtx) {
-          if (AL.currentCtx.audioCtx.state === 'suspended') {
+        if (typeof AL !== 'undefined') {
+          if (AL.currentCtx && AL.currentCtx.audioCtx && AL.currentCtx.audioCtx.state === 'suspended') {
             AL.currentCtx.audioCtx.resume().catch(() => {});
           }
+          if (Array.isArray(AL.contexts)) {
+            AL.contexts.forEach(ctx => {
+              if (ctx && ctx.audioCtx && ctx.audioCtx.state === 'suspended') {
+                ctx.audioCtx.resume().catch(() => {});
+              }
+            });
+          }
+        }
+        if (window.Module && Module.SDL2 && Module.SDL2.audioContext && Module.SDL2.audioContext.state === 'suspended') {
+          Module.SDL2.audioContext.resume().catch(() => {});
         }
       }
 
       window.addEventListener('click', resumeAudioStack);
       window.addEventListener('keydown', resumeAudioStack);
+      window.addEventListener('pointerdown', resumeAudioStack);
 
       function checkIsolation() {
         if (window.crossOriginIsolated) {
@@ -510,17 +521,8 @@
       window.fetch = async function(input, init) {
         const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
-        // Safely bypass standard page navigation and script requests so service worker never rejects them
-        if (!url.includes('chunks/') && !getSplitTarget(url) && !url.includes('portal_audio.data')) {
-          return origFetch(input, init);
-        }
-
         if (url.includes('save_console_log')) {
           return new Response('{"ok":true}', { status: 200, statusText: 'OK' });
-        }
-
-        if (url.includes('.wav') || url.includes('.mp3')) {
-          return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
         }
 
         if (url.includes('portal_audio.data') && g_audioBufferReady) {
@@ -536,7 +538,22 @@
             return new Response(new ArrayBuffer(0), { status: 200, statusText: 'OK' });
           }
         }
-        return origFetch(input, init);
+
+        // Automatic fallback into chunks/ if an un-split asset (like background2.data or testchmb_a_01.data) is requested from root
+        try {
+          const response = await origFetch(input, init);
+          if (!response.ok && !url.includes('chunks/') && url.endsWith('.data')) {
+            const fallbackPath = 'chunks/' + url.replace(/^.*[\\\/]/, '');
+            return origFetch(fallbackPath, init);
+          }
+          return response;
+        } catch(e) {
+          if (!url.includes('chunks/') && url.endsWith('.data')) {
+            const fallbackPath = 'chunks/' + url.replace(/^.*[\\\/]/, '');
+            return origFetch(fallbackPath, init);
+          }
+          throw e;
+        }
       };
 
       const OrigXHR = window.XMLHttpRequest;
@@ -559,19 +576,6 @@
               Object.defineProperty(xhr, 'status', { get: () => 200 });
               Object.defineProperty(xhr, 'statusText', { get: () => 'OK' });
               Object.defineProperty(xhr, 'readyState', { get: () => 4 });
-              if (typeof xhr.onload === 'function') xhr.onload(new ProgressEvent('load'));
-            }, 0);
-            return;
-          }
-
-          if (targetUrl.includes('.wav') || targetUrl.includes('.mp3')) {
-            setTimeout(() => {
-              const emptyBuf = new ArrayBuffer(0);
-              Object.defineProperty(xhr, 'status', { get: () => 200 });
-              Object.defineProperty(xhr, 'statusText', { get: () => 'OK' });
-              Object.defineProperty(xhr, 'readyState', { get: () => 4 });
-              Object.defineProperty(xhr, 'response', { get: () => emptyBuf });
-              Object.defineProperty(xhr, 'responseText', { get: () => '' });
               if (typeof xhr.onload === 'function') xhr.onload(new ProgressEvent('load'));
             }, 0);
             return;
@@ -611,6 +615,7 @@
             });
             return;
           }
+
           return origSend.call(this, body);
         };
         return xhr;
@@ -627,6 +632,7 @@
           launcherUi.style.display = 'none';
         }, 400);
         canvasElement.focus();
+        resumeAudioStack();
       }
 
       var Module = {
@@ -669,6 +675,7 @@
             Module._JSRequestResize(g_pendingResize[0], g_pendingResize[1]);
             window.g_pendingResize = null;
           }
+          resumeAudioStack();
           setTimeout(dismissLauncher, 3000);
         },
         preRun: [
@@ -676,7 +683,6 @@
             if (g_audioBufferReady && typeof FS !== 'undefined') {
               try {
                 const u8 = new Uint8Array(g_audioBufferReady);
-                // Synchronously mount into Emscripten VFS using FS.createDataFile to guarantee presence for C++ engine
                 const writePaths = [
                   { parent: '/', name: 'portal_audio.data' },
                   { parent: '/portal', name: 'portal_audio.data' },
